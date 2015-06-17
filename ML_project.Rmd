@@ -1,0 +1,83 @@
+---
+title: "Prediction of Barbell Lifts by Personal Activity Devices"
+author: "Ertugrul Dalgic"
+date: "June 2015"
+output: html_document
+---
+
+This report is based on the analysis of a dataset built based on the mesurements
+taken from the personal activity devices such as Jawbone Up, Nike FuelBand, or 
+Fitbit. 
+
+5 different ways of barbell lifts (denoted as A,B,C,D or E in the classe column),
+are predicted by machine learning algorithms applied on more than 150 mearument
+variables. First, I read the training dataset and have a general look at it;
+
+```{r}
+trainpml <- read.csv('pml-training.csv',na.strings=c('','NA'))
+dim(trainpml)
+```
+
+The dataset has a large number of variables which we can use to make predictions.
+However there are missing values. I need to have a better idea of how many 
+missing variables there are;
+
+```{r}
+nomissing <- sapply(1:ncol(trainpml),function(x) sum(is.na(trainpml[,x])))
+print(nomissing)
+```
+
+Most of the columns have 19216 missing values. Considering that the total number 
+of rows is 19622, the majority of their values are missing so these columns are 
+not useful for our analysis; so they can be removed. Also, The first column is
+just an index and the second column is the name of the participant so they are
+not useful for the prediction so they could also be removed. Furthermore, the
+3rd, 4th, 5th and 6th columns are for dates which is also not a proper predictor
+for the current analysis, so they could also be removed. Finally the 7th column,
+which is names a num_window also seems to be irrelevant for making a prediction
+of the classe variable so it can also be removed.
+
+```{r}
+selectcol <- nomissing == 0
+selectcol[1:7] = FALSE
+tpml <- trainpml[,selectcol]
+dim(tpml)
+
+```
+
+Looking at the names of the variables; there are four categories; belt, arm, 
+dumbbell and forearm. There are too many variables (as predictors for machine learning algorithms). In order to understand which ones could be better at differentiating between the different classes I make a summarization of the data and look at an heatmap to see which variables differ between classes;
+
+```{r}
+tpmlA<-tpml[tpml$classe=='A',]
+tpmlB<-tpml[tpml$classe=='B',]
+tpmlC<-tpml[tpml$classe=='C',]
+tpmlD<-tpml[tpml$classe=='D',]
+tpmlE<-tpml[tpml$classe=='E',]
+meanvals <- rbind(apply(tpmlA[1:52],2,mean),apply(tpmlB[1:52],2,mean),apply(tpmlC[1:52],2,mean),apply(tpmlD[1:52],2,mean),apply(tpmlE[1:52],2,mean))
+rownames(meanvals)=c('A','B','C','D','E')
+heatmap(as.matrix(meanvals))
+```
+
+Heatmap figure, which shows values as color intensities, clearly shows that some variables differ significantly between the different classes. For example, in the lower right corner of the figure magnet_arm_x variable can be seen to have higher values (more intense color) for class A, then lower values for classes B and C and much lower for the classes E and D. Because of these differences I can select it as one my predictors. On the other hand, some variables are bad at differentiating between classes. Again, in the lower right corner magnet_forearm_y and magnet_forearm_z variables can be seen to be the same for all the classes; therefore I can eliminate such variables from my list of predictors. As a result, I select 19 out of 52 candidate predictors.
+
+```{r}
+library(dplyr)
+spml <- select(tpml,magnet_forearm_x,accel_belt_z,accel_arm_z,accel_forearm_z,accel_forearm_x,gyros_forearm_x,accel_arm_x,magnet_dumbbell_z,roll_dumbbell,total_accel_dumbbell,pitch_forearm,roll_arm,yaw_forearm,magnet_belt_y,magnet_arm_x,magnet_dumbbell_y,magnet_arm_y,accel_forearm_y,magnet_arm_z,classe)
+dim(spml)
+```
+
+These variables are appropriate for a tree based machine learning algorithm since it can go like if magnet_arm_x is higher than a threshold then classe A can be selected and for a lower treshold classe B or C can be selected. Random forest algorithm will be my choice as the tree approach should be combined with bootstrapping in order to improve the accuracy. So, cross validation will be done automatically by bootstrapping (randomization of variables with replacement). Since the dataset is very large (containing 19622 rows), I can select 50% of it for training and the remaning for testing.
+
+```{r}
+library(caret)
+seltr <- createDataPartition(y=spml$classe,p=0.5,list=FALSE)
+trs <- spml[seltr,]
+tes <- spml[-seltr,]
+pmlrf <- train(classe~.,data=trs,method='rf',prox=TRUE)
+prd <- predict(pmlrf,tes)
+confusionMatrix(prd,tes$classe)
+table(prd,tes$classe)
+```
+
+After training our model with half of the dataset, I tested the model with the remaining half of the dataset. Confusion matrix and table views show that I was able to achieve a very high accuracy with my random forest model. Since the accuracy is 97% which is built based on the bootstrapping cross validation of the model, my expected out of sample error could be a little higher than 3%. The little higher error could be because of the overfitting issue of the random forest model.
